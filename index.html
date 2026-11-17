@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Avganger">
+<meta name="theme-color" content="#00317a">
+<title>Avgangstavle</title>
+<style>
+  :root {
+    --navy: #00317a; --navy-2: #002366; --sky: #dff1fa; --board: #1c1c1c;
+    --line: #3a3a3a; --text: #fff; --muted: #a8a8a8; --warn: #ffd21f;
+    --red: #e3242b; --green: #8cc63f; --blue: #3fc4f0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #fff; color: var(--navy);
+    font: 16px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 34px; margin: 8px 0 14px; cursor: pointer; }
+  h1 small { font-size: 14px; font-weight: 500; color: #5a6b8c; display: block; }
+  .tabs { display: flex; background: var(--sky); border-radius: 999px; margin-bottom: 14px; }
+  .tabs button {
+    flex: 1; border: 0; background: none; padding: 12px; font-size: 18px; font-weight: 700;
+    color: var(--navy); border-radius: 999px; cursor: pointer;
+  }
+  .tabs button.on { background: var(--navy); color: #fff; }
+  .filter {
+    background: var(--navy); color: #fff; border-radius: 16px 16px 0 0;
+    padding: 14px 16px; display: flex; align-items: center; gap: 12px;
+  }
+  .filter .txt { flex: 1; min-width: 0; }
+  .filter b { display: block; font-size: 17px; }
+  .filter span { font-size: 15px; opacity: .9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .pill {
+    border: 2px solid #fff; color: #fff; background: none; border-radius: 999px;
+    padding: 8px 14px; font-weight: 700; font-size: 15px; cursor: pointer;
+  }
+  .switch { width: 52px; height: 30px; border-radius: 999px; background: #fff; border: 0; position: relative; cursor: pointer; flex: none; }
+  .switch::after {
+    content: ""; position: absolute; top: 4px; left: 4px; width: 22px; height: 22px;
+    border-radius: 50%; background: #9aa; transition: left .15s;
+  }
+  .switch.on::after { left: 26px; background: var(--navy); }
+  .board { background: var(--board); color: var(--text); border-radius: 0 0 16px 16px; padding: 4px 16px 12px; min-height: 200px; }
+  .hero { padding: 16px 0 14px; border-bottom: 1px solid var(--line); }
+  .hero .top { display: flex; justify-content: space-between; align-items: center; color: #ddd; font-size: 18px; }
+  .hero .main { display: flex; justify-content: space-between; align-items: baseline; margin-top: 8px; }
+  .hero .dest { font-size: 34px; font-weight: 700; }
+  .hero .time { font-size: 40px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .hero .via { color: #ddd; margin-top: 6px; }
+  .hero .exp { color: var(--warn); font-size: 18px; text-align: right; }
+  .head, .row { display: grid; grid-template-columns: 58px 1fr auto 40px; gap: 10px; align-items: center; }
+  .head { color: var(--muted); font-size: 14px; padding: 12px 0 8px; border-bottom: 1px solid var(--line); }
+  .head :last-child, .row .spor { text-align: right; }
+  .item { border-bottom: 1px solid var(--line); padding: 14px 0; }
+  .row { font-size: 19px; }
+  .row .t { font-variant-numeric: tabular-nums; }
+  .row .to { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .row .to span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .forv { color: var(--warn); font-variant-numeric: tabular-nums; font-size: 17px; }
+  .badge { font-weight: 800; font-size: 15px; padding: 2px 6px; min-width: 44px; text-align: left; color: #111; flex: none; }
+  .badge.R, .badge.RE.red { background: var(--red); color: #fff; }
+  .badge.L { background: var(--green); }
+  .badge.RE { background: var(--blue); }
+  .badge.F { background: #e4002b; color: #fff; }
+  .badge.X { background: #ccc; }
+  .cancel { text-decoration: line-through; color: var(--muted); }
+  .msg { color: var(--warn); margin: 8px 0 0 68px; font-size: 15px; }
+  .status { color: var(--muted); font-size: 13px; text-align: center; padding: 10px 0 0; }
+  .empty { color: var(--muted); padding: 30px 0; text-align: center; }
+  .err { color: #ff8a8a; padding: 20px 0; }
+  /* dialog */
+  .sheet { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: flex-end; justify-content: center; z-index: 10; }
+  .sheet.open { display: flex; }
+  .sheet .box {
+    background: #fff; width: 100%; max-width: 640px; border-radius: 18px 18px 0 0;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); max-height: 85vh; overflow: auto;
+  }
+  .sheet h2 { margin: 0 0 12px; font-size: 20px; }
+  .sheet label { display: block; font-weight: 600; margin: 10px 0 4px; font-size: 14px; }
+  .sheet input { width: 100%; font-size: 17px; padding: 11px 12px; border: 1.5px solid #b8c4da; border-radius: 10px; }
+  .sugg { list-style: none; margin: 4px 0 0; padding: 0; border-radius: 10px; overflow: hidden; }
+  .sugg li { padding: 10px 12px; background: #f1f5fb; border-bottom: 1px solid #fff; cursor: pointer; }
+  .actions { display: flex; gap: 10px; margin-top: 16px; }
+  .actions button { flex: 1; padding: 12px; font-size: 16px; font-weight: 700; border-radius: 999px; border: 2px solid var(--navy); cursor: pointer; }
+  .primary { background: var(--navy); color: #fff; }
+  .secondary { background: #fff; color: var(--navy); }
+  .favs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .favs button { border: 1.5px solid var(--navy); background: #fff; color: var(--navy); border-radius: 999px; padding: 6px 12px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .favs button.star { background: var(--navy); color: #fff; }
+</style>
+</head>
+<body>
+<main>
+  <div class="favs" id="favs"></div>
+  <h1 id="title" title="Bytt stasjon">…<small>Trykk for å bytte stasjon</small></h1>
+
+  <div class="tabs">
+    <button id="tabDep" class="on">Avganger</button>
+    <button id="tabArr">Ankomster</button>
+  </div>
+
+  <div class="filter">
+    <button class="switch" id="sw" aria-label="Filter av/på"></button>
+    <div class="txt"><b id="fTitle">Filter</b><span id="fDesc">Ingen filter</span></div>
+    <button class="pill" id="btnFilter">Bytt filter</button>
+  </div>
+
+  <div class="board" id="board"><div class="empty">Laster …</div></div>
+  <div class="status" id="status"></div>
+</main>
+
+<!-- Stasjonsvalg -->
+<div class="sheet" id="stSheet">
+  <div class="box">
+    <h2>Velg stasjon</h2>
+    <input id="stInput" placeholder="F.eks. Oslo S" autocomplete="off">
+    <ul class="sugg" id="stSugg"></ul>
+    <div class="actions"><button class="secondary" data-close>Avbryt</button></div>
+  </div>
+</div>
+
+<!-- Filter -->
+<div class="sheet" id="fSheet">
+  <div class="box">
+    <h2>Filter</h2>
+    <label for="viaInput">Stopper ved (etter denne stasjonen)</label>
+    <input id="viaInput" placeholder="F.eks. Lysaker" autocomplete="off">
+    <ul class="sugg" id="viaSugg"></ul>
+    <label for="lineInput">Linjer (kommaseparert, valgfritt)</label>
+    <input id="lineInput" placeholder="F.eks. R20, RE11">
+    <div class="actions">
+      <button class="secondary" id="fClear">Fjern filter</button>
+      <button class="primary" id="fSave">Bruk</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const CLIENT = "fredrikborud-avgangstavle";
+const JP = "https://api.entur.io/journey-planner/v3/graphql";
+const GEO = "https://api.entur.io/geocoder/v1/autocomplete";
+const H = { "ET-Client-Name": CLIENT };
+const REFRESH_MS = 30000;
+
+const QUERY = `query ($id: String!, $n: Int!, $range: Int!, $ad: ArrivalDeparture!) {
+  stopPlace(id: $id) {
+    name
+    estimatedCalls(numberOfDepartures: $n, timeRange: $range, arrivalDeparture: $ad, whiteListedModes: [rail]) {
+      aimedDepartureTime expectedDepartureTime aimedArrivalTime expectedArrivalTime
+      cancellation
+      quay { publicCode }
+      destinationDisplay { frontText via }
+      serviceJourney {
+        line { publicCode authority { name } }
+        quays { stopPlace { id name } }
+      }
+      situations { summary { value language } }
+    }
+  }
+}`;
+
+// ---------- state ----------
+const store = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+const params = new URLSearchParams(location.search);
+let S = store.get("state", {
+  stop: { id: "NSR:StopPlace:59872", name: "Oslo S" },
+  via: null, lines: [], on: false, arr: false
+});
+// URL-parametre overstyrer (for bokmerker): ?stop=NSR:StopPlace:x&via=NSR:StopPlace:y&lines=R20
+if (params.get("stop")) S.stop = { id: params.get("stop"), name: "" };
+if (params.get("via")) { S.via = { id: params.get("via"), name: "" }; S.on = true; }
+if (params.get("lines")) { S.lines = params.get("lines").split(",").map(s => s.trim().toUpperCase()); S.on = true; }
+if (params.get("arr") === "1") S.arr = true;
+let favs = store.get("favs", []);
+const save = () => store.set("state", S);
+
+// ---------- helpers ----------
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const hhmm = iso => iso ? new Date(iso).toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit" }) : "--:--";
+const badgeClass = code => {
+  const m = /^(RE|R|L|F|FLY)/i.exec(code || "");
+  if (!m) return "X";
+  const p = m[1].toUpperCase();
+  return p === "FLY" ? "F" : p;
+};
+
+async function geocode(text) {
+  const u = new URL(GEO);
+  u.search = new URLSearchParams({ text, layers: "venue", size: "6", categories: "railStation" });
+  const r = await fetch(u, { headers: H });
+  if (!r.ok) throw new Error("Geocoder " + r.status);
+  return (await r.json()).features.map(f => ({ id: f.properties.id, name: f.properties.name }));
+}
+
+async function fetchCalls() {
+  const r = await fetch(JP, {
+    method: "POST",
+    headers: { ...H, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: QUERY, variables: {
+      id: S.stop.id, n: 80, range: 4 * 3600, ad: S.arr ? "arrivals" : "departures"
+    }})
+  });
+  if (!r.ok) throw new Error("JourneyPlanner " + r.status);
+  const j = await r.json();
+  if (j.errors) throw new Error(j.errors[0].message);
+  return j.data.stopPlace;
+}
+
+function passesFilter(c) {
+  if (!S.on) return true;
+  const code = (c.serviceJourney.line.publicCode || "").toUpperCase();
+  if (S.lines.length && !S.lines.includes(code)) return false;
+  if (S.via) {
+    const ids = c.serviceJourney.quays.map(q => q.stopPlace?.id);
+    const here = ids.indexOf(S.stop.id), via = ids.indexOf(S.via.id);
+    if (here < 0 || via < 0) return false;
+    return S.arr ? via < here : via > here;
+  }
+  return true;
+}
+
+function situationText(c) {
+  return c.situations.map(s => {
+    const no = s.summary.find(v => ["no", "nob", "nor"].includes(v.language)) || s.summary[0];
+    return no?.value;
+  }).filter(Boolean);
+}
+
+// ---------- render ----------
+function renderHeader() {
+  $("title").innerHTML = `${esc(S.stop.name || "…")}<small>Trykk for å bytte stasjon</small>`;
+  $("tabDep").classList.toggle("on", !S.arr);
+  $("tabArr").classList.toggle("on", S.arr);
+  $("sw").classList.toggle("on", S.on);
+  const parts = [];
+  if (S.via) parts.push(S.via.name || "via-stasjon");
+  if (S.lines.length) parts.push(S.lines.join(", "));
+  $("fTitle").textContent = S.on ? "Filter aktivert" : "Filter av";
+  $("fDesc").textContent = parts.length ? parts.join(" · ") : "Ingen filter valgt";
+  const isFav = favs.some(f => f.stop.id === S.stop.id && (f.via?.id || null) === (S.via?.id || null) && f.lines.join() === S.lines.join());
+  $("favs").innerHTML =
+    favs.map((f, i) => `<button data-fav="${i}">${esc(f.label)}</button>`).join("") +
+    `<button class="star" id="favToggle">${isFav ? "Fjern ★" : "Lagre ★"}</button>`;
+}
+
+function renderBoard(sp) {
+  if (sp.name && !S.stop.name) { S.stop.name = sp.name; save(); renderHeader(); }
+  const calls = sp.estimatedCalls.filter(passesFilter);
+  if (!calls.length) { $("board").innerHTML = `<div class="empty">Ingen tog de neste fire timene med dette filteret.</div>`; return; }
+
+  const t = c => S.arr ? [c.aimedArrivalTime, c.expectedArrivalTime] : [c.aimedDepartureTime, c.expectedDepartureTime];
+  const [h, ...rest] = calls;
+  const [ha, he] = t(h);
+  const hLine = h.serviceJourney.line.publicCode || "";
+  const heroVia = h.destinationDisplay?.via?.length ? "via " + h.destinationDisplay.via.join(" · ") : "";
+  const heroMsgs = situationText(h);
+
+  let html = `<div class="hero">
+    <div class="top"><span class="badge ${badgeClass(hLine)}" style="font-size:22px;padding:4px 10px">${esc(hLine)}</span>
+      <span>${esc(h.serviceJourney.line.authority?.name || "")}</span>
+      <span>Spor ${esc(h.quay?.publicCode || "–")}</span></div>
+    <div class="main"><div class="dest ${h.cancellation ? "cancel" : ""}">${esc(h.destinationDisplay?.frontText)}</div>
+      <div class="time">${hhmm(ha)}</div></div>
+    ${h.cancellation ? `<div class="exp">Innstilt</div>` : hhmm(ha) !== hhmm(he) ? `<div class="exp">Forventet ${hhmm(he)}</div>` : ""}
+    ${heroVia ? `<div class="via">${esc(heroVia)}</div>` : ""}
+    ${heroMsgs.map(m => `<div class="msg" style="margin-left:0">${esc(m)}</div>`).join("")}
+  </div>
+  <div class="head"><span>${S.arr ? "Ankomst" : "Avgang"}</span><span>${S.arr ? "Tog fra" : "Tog til"}</span><span>Forventet</span><span>Spor</span></div>`;
+
+  for (const c of rest.slice(0, 20)) {
+    const [a, e] = t(c);
+    const code = c.serviceJourney.line.publicCode || "";
+    const forv = c.cancellation ? "Innstilt" : (hhmm(a) !== hhmm(e) ? hhmm(e) : "");
+    html += `<div class="item">
+      <div class="row">
+        <span class="t ${c.cancellation ? "cancel" : ""}">${hhmm(a)}</span>
+        <span class="to"><span class="badge ${badgeClass(code)}">${esc(code)}</span><span>${esc(c.destinationDisplay?.frontText)}</span></span>
+        <span class="forv">${forv}</span>
+        <span class="spor">${esc(c.quay?.publicCode || "–")}</span>
+      </div>
+      ${situationText(c).map(m => `<div class="msg">${esc(m)}</div>`).join("")}
+    </div>`;
+  }
+  $("board").innerHTML = html;
+}
+
+let timer;
+async function refresh() {
+  clearTimeout(timer);
+  try {
+    renderBoard(await fetchCalls());
+    $("status").textContent = "Oppdatert " + new Date().toLocaleTimeString("no-NO") + " · data fra Entur / Bane NOR";
+  } catch (e) {
+    $("board").innerHTML = `<div class="err">Klarte ikke hente data: ${esc(e.message)}</div>`;
+  }
+  timer = setTimeout(refresh, REFRESH_MS);
+}
+
+// ---------- autocomplete ----------
+function autocomplete(input, list, onPick) {
+  let t;
+  input.addEventListener("input", () => {
+    clearTimeout(t);
+    const q = input.value.trim();
+    if (q.length < 2) { list.innerHTML = ""; return; }
+    t = setTimeout(async () => {
+      try {
+        const res = await geocode(q);
+        list.innerHTML = res.map((r, i) => `<li data-i="${i}">${esc(r.name)}</li>`).join("");
+        list.onclick = ev => { const li = ev.target.closest("li"); if (li) onPick(res[+li.dataset.i]); };
+      } catch { list.innerHTML = `<li>Søk feilet</li>`; }
+    }, 250);
+  });
+}
+
+// ---------- events ----------
+const open = id => $(id).classList.add("open");
+const close = () => document.querySelectorAll(".sheet").forEach(s => s.classList.remove("open"));
+document.querySelectorAll("[data-close]").forEach(b => b.onclick = close);
+document.querySelectorAll(".sheet").forEach(s => s.addEventListener("click", e => { if (e.target === s) close(); }));
+
+$("title").onclick = () => { $("stInput").value = ""; $("stSugg").innerHTML = ""; open("stSheet"); $("stInput").focus(); };
+autocomplete($("stInput"), $("stSugg"), r => { S.stop = r; save(); close(); renderHeader(); refresh(); });
+
+let pendingVia = null;
+$("btnFilter").onclick = () => {
+  pendingVia = S.via;
+  $("viaInput").value = S.via?.name || "";
+  $("lineInput").value = S.lines.join(", ");
+  $("viaSugg").innerHTML = "";
+  open("fSheet");
+};
+autocomplete($("viaInput"), $("viaSugg"), r => { pendingVia = r; $("viaInput").value = r.name; $("viaSugg").innerHTML = ""; });
+$("fSave").onclick = () => {
+  if (!$("viaInput").value.trim()) pendingVia = null;
+  S.via = pendingVia;
+  S.lines = $("lineInput").value.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+  S.on = !!(S.via || S.lines.length);
+  save(); close(); renderHeader(); refresh();
+};
+$("fClear").onclick = () => { S.via = null; S.lines = []; S.on = false; save(); close(); renderHeader(); refresh(); };
+$("sw").onclick = () => { S.on = !S.on; save(); renderHeader(); refresh(); };
+$("tabDep").onclick = () => { S.arr = false; save(); renderHeader(); refresh(); };
+$("tabArr").onclick = () => { S.arr = true; save(); renderHeader(); refresh(); };
+
+$("favs").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.id === "favToggle") {
+    const idx = favs.findIndex(f => f.stop.id === S.stop.id && (f.via?.id || null) === (S.via?.id || null) && f.lines.join() === S.lines.join());
+    if (idx >= 0) favs.splice(idx, 1);
+    else favs.push({ label: S.stop.name + (S.via ? " → " + S.via.name : "") + (S.lines.length ? " (" + S.lines.join(",") + ")" : ""),
+                     stop: S.stop, via: S.via, lines: S.lines });
+    store.set("favs", favs); renderHeader(); return;
+  }
+  const f = favs[+b.dataset.fav];
+  if (f) { S.stop = f.stop; S.via = f.via; S.lines = f.lines; S.on = !!(f.via || f.lines.length); save(); renderHeader(); refresh(); }
+});
+
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+
+// Fyll inn navn for stasjoner som kom fra URL uten navn
+(async () => {
+  if (S.via && !S.via.name) {
+    // Navnet hentes fra første tog som stopper der
+    try {
+      const sp = await fetchCalls();
+      for (const c of sp.estimatedCalls) {
+        const q = c.serviceJourney.quays.find(q => q.stopPlace?.id === S.via.id);
+        if (q) { S.via.name = q.stopPlace.name; break; }
+      }
+    } catch {}
+  }
+  renderHeader(); refresh();
+})();
+</script>
+</body>
+</html>
