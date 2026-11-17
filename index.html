@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pendler">
+<meta name="theme-color" content="#00317a">
+<title>Pendler – Fredrikstad ⇄ Lysaker</title>
+<style>
+  :root {
+    --navy: #00317a; --board: #1c1c1c; --line: #333; --text: #fff; --muted: #9a9a9a;
+    --warn: #ffd21f; --ok: #8cc63f; --red: #e3242b; --green: #8cc63f; --blue: #3fc4f0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #f2f4f8; color: var(--navy);
+    font: 13px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 8px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; padding: 4px 4px 8px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .st { color: #5a6b8c; font-size: 11px; }
+  header button { border: 1.5px solid var(--navy); background: #fff; color: var(--navy); border-radius: 999px; padding: 3px 10px; font-weight: 700; font-size: 12px; }
+  .grid { display: grid; gap: 8px; }
+  @media (min-width: 720px) { .grid { grid-template-columns: 1fr 1fr; } }
+  .sec { border-radius: 10px; overflow: hidden; background: var(--board); color: var(--text); }
+  .sec h2 {
+    margin: 0; background: var(--navy); color: #fff; font-size: 13px; padding: 6px 10px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .sec h2 small { font-weight: 400; opacity: .8; font-size: 11px; }
+  .rows { padding: 0 10px; }
+  .item { border-bottom: 1px solid var(--line); padding: 5px 0; }
+  .item:last-child { border-bottom: 0; }
+  .row { display: grid; grid-template-columns: 38px 1fr auto 26px; gap: 6px; align-items: center; font-size: 14px; }
+  .t { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .to { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .to .d { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .forv { color: var(--warn); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .spor { text-align: right; font-weight: 600; }
+  .badge { font-weight: 800; font-size: 10.5px; padding: 1px 4px; min-width: 30px; color: #111; flex: none; }
+  .badge.R { background: var(--red); color: #fff; }
+  .badge.L { background: var(--green); }
+  .badge.RE { background: var(--blue); }
+  .badge.F { background: #e4002b; color: #fff; }
+  .badge.X { background: #ccc; }
+  .cancel { text-decoration: line-through; color: var(--muted); }
+  .sub { margin: 3px 0 0 44px; font-size: 11.5px; color: #cfd8e3; display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: center; }
+  .sub .k { color: var(--muted); }
+  .sub b { color: #fff; }
+  .sub .tight { color: var(--warn); }
+  .sub .direct { color: var(--ok); }
+  .msg { color: var(--warn); margin: 2px 0 0 44px; font-size: 11.5px; }
+  .set { display: inline-flex; gap: 2px; align-items: center; }
+  .set i { display: inline-block; width: 18px; height: 7px; border-radius: 2px; background: #6f8db8; }
+  .more { display: block; width: 100%; background: none; border: 0; border-top: 1px solid var(--line); color: var(--blue); padding: 6px; font-size: 12px; font-weight: 600; }
+  .empty, .err { color: var(--muted); padding: 10px 0; text-align: center; font-size: 12px; }
+  .err { color: #ff8a8a; }
+  footer { text-align: center; color: #7a879c; font-size: 11px; padding: 10px 0 4px; }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>Fredrikstad ⇄ Lysaker</h1><div class="st" id="status">Laster …</div></div>
+    <button id="refresh">Oppdater</button>
+  </header>
+  <div class="grid" id="grid"></div>
+  <footer>Bytte-forslag forutsetter minst <span id="minb"></span> min på Oslo S · Data: Entur / Bane NOR · <a href="tavle.html">Generell tavle</a></footer>
+</main>
+
+<script>
+// ===================== Innstillinger =====================
+const STASJONER = { hjem: "Fredrikstad", bytte: "Oslo S", jobb: "Lysaker" };
+const MIN_BYTTE_MIN = 4;          // minste byttetid på Oslo S
+const VIS = 5, VIS_UTVIDET = 15;  // rader per tabell
+const REFRESH_MS = 30000;
+const CLIENT = "fredrikborud-avgangstavle";
+// =========================================================
+
+const JP = "https://api.entur.io/journey-planner/v3/graphql";
+const GEO = "https://api.entur.io/geocoder/v1/autocomplete";
+const H = { "ET-Client-Name": CLIENT };
+document.getElementById("minb").textContent = MIN_BYTTE_MIN;
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const hhmm = iso => iso ? new Date(iso).toLocaleTimeString("no-NO", { hour: "2-digit", minute: "2-digit" }) : "--:--";
+const ms = iso => new Date(iso).getTime();
+const badgeClass = code => {
+  const m = /^(RE|R|L|FLY|F)/i.exec(code || "");
+  if (!m) return "X";
+  const p = m[1].toUpperCase();
+  return p === "FLY" ? "F" : p;
+};
+const store = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+
+// ---------- stasjons-ID-er (slås opp én gang og caches) ----------
+async function stopId(navn) {
+  const cache = store.get("ids", {});
+  if (cache[navn]) return cache[navn];
+  const u = new URL(GEO);
+  u.search = new URLSearchParams({ text: navn, layers: "venue", size: "10", categories: "railStation" });
+  const r = await fetch(u, { headers: H });
+  if (!r.ok) throw new Error("Geocoder " + r.status);
+  const f = (await r.json()).features;
+  const hit = f.find(x => x.properties.name.toLowerCase() === navn.toLowerCase()) || f[0];
+  if (!hit) throw new Error("Fant ikke " + navn);
+  cache[navn] = hit.properties.id; store.set("ids", cache);
+  return hit.properties.id;
+}
+
+// ---------- én GraphQL-spørring for alt ----------
+const CALL = `
+  aimedDepartureTime expectedDepartureTime aimedArrivalTime expectedArrivalTime
+  cancellation
+  quay { publicCode }
+  destinationDisplay { frontText }
+  serviceJourney {
+    id
+    line { publicCode }
+    quays { stopPlace { id } }
+  }
+  situations { summary { value language } }`;
+
+const QUERY = `query ($hjem: String!, $bytte: String!, $jobb: String!) {
+  hjem:  stopPlace(id: $hjem)  { estimatedCalls(numberOfDepartures: 60,  timeRange: 14400, arrivalDeparture: departures, whiteListedModes: [rail]) { ${CALL} } }
+  jobb:  stopPlace(id: $jobb)  { estimatedCalls(numberOfDepartures: 80,  timeRange: 14400, arrivalDeparture: departures, whiteListedModes: [rail]) { ${CALL} } }
+  bDep:  stopPlace(id: $bytte) { estimatedCalls(numberOfDepartures: 300, timeRange: 16200, arrivalDeparture: departures, whiteListedModes: [rail]) { ${CALL} } }
+  bArr:  stopPlace(id: $bytte) { estimatedCalls(numberOfDepartures: 300, timeRange: 16200, arrivalDeparture: arrivals,   whiteListedModes: [rail]) { ${CALL} } }
+}`;
+
+async function hent(ids) {
+  const r = await fetch(JP, {
+    method: "POST",
+    headers: { ...H, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: QUERY, variables: ids })
+  });
+  if (!r.ok) throw new Error("JourneyPlanner " + r.status);
+  const j = await r.json();
+  if (j.errors) throw new Error(j.errors[0].message);
+  return j.data;
+}
+
+// ---------- logikk ----------
+const sjIds = c => c.serviceJourney.quays.map(q => q.stopPlace?.id);
+// Stopper toget ved "til" etter "fra"?
+const gaarTil = (c, fra, til) => { const a = sjIds(c), i = a.indexOf(fra), j = a.indexOf(til); return i >= 0 && j > i; };
+const dep = c => c.expectedDepartureTime || c.aimedDepartureTime;
+const arr = c => c.expectedArrivalTime || c.aimedArrivalTime;
+
+// For et tog fra A mot Oslo S: finn ankomst Oslo S og første videre tog mot B
+function finnBytte(c, ids, maal, data) {
+  if (gaarTil(c, ids.bytte, ids[maal])) return { direkte: true };
+  const ank = data.bArr.estimatedCalls.find(a => a.serviceJourney.id === c.serviceJourney.id);
+  if (!ank) return null;
+  const tAnk = ms(arr(ank));
+  const kandidater = data.bDep.estimatedCalls
+    .filter(d => !d.cancellation && gaarTil(d, ids.bytte, ids[maal]))
+    .filter(d => ms(dep(d)) >= tAnk + MIN_BYTTE_MIN * 60000)
+    .sort((a, b) => ms(dep(a)) - ms(dep(b)));
+  const neste = kandidater[0];
+  return { ank, neste, bytteMin: neste ? Math.round((ms(dep(neste)) - tAnk) / 60000) : null };
+}
+
+const situasjoner = c => c.situations.map(s => {
+  const no = s.summary.find(v => ["no", "nob", "nor"].includes(v.language)) || s.summary[0];
+  return no?.value;
+}).filter(Boolean);
+
+// ---------- visning ----------
+const utvidet = store.get("utvidet", {});
+
+function radHTML(c, ekstra = "") {
+  const a = c.aimedDepartureTime, e = c.expectedDepartureTime;
+  const code = c.serviceJourney.line.publicCode || "";
+  const forv = c.cancellation ? "Innstilt" : (hhmm(a) !== hhmm(e) ? hhmm(e) : "");
+  // Togsett: vises når en kilde for sammensetning er koblet på (c.togsett = [{type:"75"}, ...])
+  const sett = c.togsett?.length
+    ? `<span class="set" title="${esc(c.togsett.map(t => "Type " + t.type).join(" + "))}">${c.togsett.map(() => "<i></i>").join("")} <span class="k">${esc(c.togsett.map(t => t.type).join("+"))}</span></span>`
+    : "";
+  return `<div class="item">
+    <div class="row">
+      <span class="t ${c.cancellation ? "cancel" : ""}">${hhmm(a)}</span>
+      <span class="to"><span class="badge ${badgeClass(code)}">${esc(code)}</span><span class="d">${esc(c.destinationDisplay?.frontText)}</span></span>
+      <span class="forv">${forv}</span>
+      <span class="spor">${esc(c.quay?.publicCode || "–")}</span>
+    </div>
+    ${ekstra}${sett ? `<div class="sub">${sett}</div>` : ""}
+    ${situasjoner(c).map(m => `<div class="msg">⚠ ${esc(m)}</div>`).join("")}
+  </div>`;
+}
+
+function bytteHTML(b, maalNavn) {
+  if (!b) return "";
+  if (b.direkte) return `<div class="sub"><span class="direct">● Går direkte til ${esc(maalNavn)} – ingen bytte</span></div>`;
+  const ank = `<span><span class="k">Ank. Oslo S</span> <b>${hhmm(arr(b.ank))}</b> spor <b>${esc(b.ank.quay?.publicCode || "–")}</b></span>`;
+  if (!b.neste) return `<div class="sub">${ank}<span class="k">→ fant ikke videre tog</span></div>`;
+  const n = b.neste, code = n.serviceJourney.line.publicCode || "";
+  return `<div class="sub">${ank}
+    <span>→ <span class="badge ${badgeClass(code)}">${esc(code)}</span> <b>${hhmm(dep(n))}</b> spor <b>${esc(n.quay?.publicCode || "–")}</b></span>
+    <span class="${b.bytteMin <= MIN_BYTTE_MIN + 1 ? "tight" : "k"}">${b.bytteMin} min bytte</span></div>`;
+}
+
+function seksjon(key, tittel, undertittel, calls, ekstraFn) {
+  const n = utvidet[key] ? VIS_UTVIDET : VIS;
+  const vis = calls.slice(0, n);
+  const body = vis.length ? vis.map(c => radHTML(c, ekstraFn ? ekstraFn(c) : "")).join("")
+                          : `<div class="empty">Ingen tog de neste timene</div>`;
+  const knapp = calls.length > VIS
+    ? `<button class="more" data-key="${key}">${utvidet[key] ? "Vis færre" : `Vis flere (${Math.min(calls.length, VIS_UTVIDET) - VIS})`}</button>` : "";
+  return `<section class="sec"><h2>${esc(tittel)} <small>${esc(undertittel)}</small></h2><div class="rows">${body}</div>${knapp}</section>`;
+}
+
+let ids, sist, timer;
+
+function tegn() {
+  const d = sist, { hjem, bytte, jobb } = STASJONER;
+  const now = Date.now() - 60000;
+  const fersk = c => ms(dep(c)) >= now;
+
+  const s1 = d.hjem.estimatedCalls.filter(c => fersk(c) && gaarTil(c, ids.hjem, ids.bytte));
+  const s2 = d.bDep.estimatedCalls.filter(c => fersk(c) && gaarTil(c, ids.bytte, ids.jobb));
+  const s3 = d.jobb.estimatedCalls.filter(c => fersk(c) && gaarTil(c, ids.jobb, ids.bytte));
+  const s4 = d.bDep.estimatedCalls.filter(c => fersk(c) && gaarTil(c, ids.bytte, ids.hjem));
+
+  const til = [
+    seksjon("s1", `${hjem} → ${bytte}`, `bytte mot ${jobb}`, s1, c => bytteHTML(finnBytte(c, ids, "jobb", d), jobb)),
+    seksjon("s2", `${bytte} → ${jobb}`, "", s2),
+  ];
+  const fra = [
+    seksjon("s3", `${jobb} → ${bytte}`, `bytte mot ${hjem}`, s3, c => bytteHTML(finnBytte(c, ids, "hjem", d), hjem)),
+    seksjon("s4", `${bytte} → ${hjem}`, "", s4),
+  ];
+  // Etter kl. 12 vises hjemreisen øverst
+  const ettermiddag = new Date().getHours() >= 12;
+  $("grid").innerHTML = (ettermiddag ? [...fra, ...til] : [...til, ...fra]).join("");
+}
+
+async function refresh() {
+  clearTimeout(timer);
+  try {
+    if (!ids) {
+      const [h, b, j] = await Promise.all([stopId(STASJONER.hjem), stopId(STASJONER.bytte), stopId(STASJONER.jobb)]);
+      ids = { hjem: h, bytte: b, jobb: j };
+    }
+    sist = await hent(ids);
+    tegn();
+    $("status").textContent = "Oppdatert " + new Date().toLocaleTimeString("no-NO");
+  } catch (e) {
+    $("status").textContent = "Feil: " + e.message;
+    if (!sist) $("grid").innerHTML = `<div class="err">Klarte ikke hente data: ${esc(e.message)}</div>`;
+  }
+  timer = setTimeout(refresh, REFRESH_MS);
+}
+
+$("grid").addEventListener("click", e => {
+  const b = e.target.closest(".more"); if (!b) return;
+  utvidet[b.dataset.key] = !utvidet[b.dataset.key]; store.set("utvidet", utvidet); tegn();
+});
+$("refresh").onclick = refresh;
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+refresh();
+</script>
+</body>
+</html>
