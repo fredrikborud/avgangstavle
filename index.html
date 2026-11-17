@@ -54,6 +54,10 @@
   .sub .tight { color: var(--warn); }
   .sub .direct { color: var(--ok); }
   .msg { color: var(--warn); margin: 2px 0 0 44px; font-size: 11.5px; }
+  details.msg summary { cursor: pointer; list-style: none; }
+  details.msg summary::after { content: " ›"; opacity: .7; }
+  details.msg[open] { color: #e8e2c0; }
+  details.msg[open] summary { color: var(--warn); }
   .set { display: inline-flex; gap: 2px; align-items: center; }
   .set i { display: inline-block; width: 18px; height: 7px; border-radius: 2px; background: #6f8db8; }
   .more { display: block; width: 100%; background: none; border: 0; border-top: 1px solid var(--line); color: var(--blue); padding: 6px; font-size: 12px; font-weight: 600; }
@@ -132,7 +136,7 @@ const CALL = `
     line { publicCode authority { id name } }
     quays { stopPlace { id name parent { id } } }
   }
-  situations { summary { value language } }`;
+  situations { id summary { value language } description { value language } advice { value language } }`;
 
 const QUERY = `query ($hjem: String!, $bytte: String!, $jobb: String!) {
   hjem:  stopPlace(id: $hjem)  { estimatedCalls(numberOfDepartures: 60,  timeRange: 14400, arrivalDeparture: departures, whiteListedModes: [rail]) { ${CALL} } }
@@ -190,10 +194,19 @@ function finnBytte(c, ids, maal, data) {
   return { ank, neste, bytteMin: neste ? Math.round((ms(dep(neste)) - tAnk) / 60000) : null };
 }
 
-const situasjoner = c => c.situations.map(s => {
-  const no = s.summary.find(v => ["no", "nob", "nor"].includes(v.language)) || s.summary[0];
-  return no?.value;
-}).filter(Boolean);
+const nb = arr => { arr = arr || []; return (arr.find(v => ["no", "nob", "nor"].includes(v.language)) || arr[0])?.value || ""; };
+// Avviksmeldinger, uten duplikater. Returnerer { tittel, detalj }.
+const situasjoner = c => {
+  const sett = new Map();
+  for (const s of c.situations) {
+    const tittel = nb(s.summary).trim();
+    if (!tittel) continue;
+    const detalj = [nb(s.description), nb(s.advice)].map(x => x.trim()).filter(x => x && x !== tittel).join(" · ");
+    const key = tittel + "|" + detalj;
+    if (!sett.has(key)) sett.set(key, { tittel, detalj });
+  }
+  return [...sett.values()];
+};
 
 // ---------- visning ----------
 const utvidet = store.get("utvidet", {});
@@ -214,7 +227,9 @@ function radHTML(c, ekstra = "") {
       <span class="spor">${esc(c.quay?.publicCode || "–")}</span>
     </div>
     ${ekstra}${sett ? `<div class="sub">${sett}</div>` : ""}
-    ${situasjoner(c).map(m => `<div class="msg">⚠ ${esc(m)}</div>`).join("")}
+    ${situasjoner(c).map(m => m.detalj
+      ? `<details class="msg"><summary>⚠ ${esc(m.tittel)}</summary>${esc(m.detalj)}</details>`
+      : `<div class="msg">⚠ ${esc(m.tittel)}</div>`).join("")}
   </div>`;
 }
 
