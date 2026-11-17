@@ -70,13 +70,15 @@
     <button id="refresh">Oppdater</button>
   </header>
   <div class="grid" id="grid"></div>
-  <footer>Bytte-forslag forutsetter minst <span id="minb"></span> min på Oslo S · Data: Entur / Bane NOR · <a href="tavle.html">Generell tavle</a></footer>
+  <footer>Kun Vy-tog · bytte-forslag med minst <span id="minb"></span> min på Oslo S · Data: Entur / Bane NOR · <a href="tavle.html">Generell tavle</a></footer>
 </main>
 
 <script>
 // ===================== Innstillinger =====================
 const STASJONER = { hjem: "Fredrikstad", bytte: "Oslo S", jobb: "Lysaker" };
-const MIN_BYTTE_MIN = 4;          // minste byttetid på Oslo S
+const MIN_BYTTE_MIN = 0;          // minste byttetid på Oslo S
+// Bare tog fra disse selskapene vises (billett gjelder kun Vy). Sjekkes mot authority id/navn.
+const OPERATOR = /^VYG$|(^|:)VYG(:|$)|^vy\b/i;
 const VIS = 5, VIS_UTVIDET = 15;  // rader per tabell
 const REFRESH_MS = 30000;
 const CLIENT = "fredrikborud-avgangstavle";
@@ -125,7 +127,7 @@ const CALL = `
   destinationDisplay { frontText }
   serviceJourney {
     id
-    line { publicCode }
+    line { publicCode authority { id name } }
     quays { stopPlace { id } }
   }
   situations { summary { value language } }`;
@@ -150,6 +152,11 @@ async function hent(ids) {
 }
 
 // ---------- logikk ----------
+// Codespace i ServiceJourney-ID-en (VYG:, FLT:, GOA:, SJN:) er det sikreste; authority er reserve.
+const gyldig = c => {
+  const sj = c.serviceJourney, a = sj.line.authority || {};
+  return OPERATOR.test((sj.id || "").split(":")[0]) || OPERATOR.test(a.id || "") || OPERATOR.test(a.name || "");
+};
 const sjIds = c => c.serviceJourney.quays.map(q => q.stopPlace?.id);
 // Stopper toget ved "til" etter "fra"?
 const gaarTil = (c, fra, til) => { const a = sjIds(c), i = a.indexOf(fra), j = a.indexOf(til); return i >= 0 && j > i; };
@@ -163,7 +170,7 @@ function finnBytte(c, ids, maal, data) {
   if (!ank) return null;
   const tAnk = ms(arr(ank));
   const kandidater = data.bDep.estimatedCalls
-    .filter(d => !d.cancellation && gaarTil(d, ids.bytte, ids[maal]))
+    .filter(d => !d.cancellation && gyldig(d) && gaarTil(d, ids.bytte, ids[maal]))
     .filter(d => ms(dep(d)) >= tAnk + MIN_BYTTE_MIN * 60000)
     .sort((a, b) => ms(dep(a)) - ms(dep(b)));
   const neste = kandidater[0];
@@ -206,7 +213,7 @@ function bytteHTML(b, maalNavn) {
   const n = b.neste, code = n.serviceJourney.line.publicCode || "";
   return `<div class="sub">${ank}
     <span>→ <span class="badge ${badgeClass(code)}">${esc(code)}</span> <b>${hhmm(dep(n))}</b> spor <b>${esc(n.quay?.publicCode || "–")}</b></span>
-    <span class="${b.bytteMin <= MIN_BYTTE_MIN + 1 ? "tight" : "k"}">${b.bytteMin} min bytte</span></div>`;
+    <span class="${b.bytteMin <= 2 ? "tight" : "k"}">${b.bytteMin} min bytte</span></div>`;
 }
 
 function seksjon(key, tittel, undertittel, calls, ekstraFn) {
@@ -224,7 +231,7 @@ let ids, sist, timer;
 function tegn() {
   const d = sist, { hjem, bytte, jobb } = STASJONER;
   const now = Date.now() - 60000;
-  const fersk = c => ms(dep(c)) >= now;
+  const fersk = c => ms(dep(c)) >= now && gyldig(c);
 
   const s1 = d.hjem.estimatedCalls.filter(c => fersk(c) && gaarTil(c, ids.hjem, ids.bytte));
   const s2 = d.bDep.estimatedCalls.filter(c => fersk(c) && gaarTil(c, ids.bytte, ids.jobb));
