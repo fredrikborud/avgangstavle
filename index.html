@@ -70,15 +70,16 @@
     <button id="refresh">Oppdater</button>
   </header>
   <div class="grid" id="grid"></div>
-  <footer>Kun Vy-tog · bytte-forslag med minst <span id="minb"></span> min på Oslo S · Data: Entur / Bane NOR · <a href="tavle.html">Generell tavle</a></footer>
+  <footer>Kun Vy-tog · bytte-forslag med minst <span id="minb"></span> min på Oslo S · Data: Entur / Bane NOR · <a href="tavle.html">Generell tavle</a> · <a href="#" id="diagBtn">Diagnose</a></footer>
+  <pre id="diag" style="display:none;white-space:pre-wrap;font-size:10px;color:#333;background:#fff;padding:8px;border-radius:8px"></pre>
 </main>
 
 <script>
 // ===================== Innstillinger =====================
 const STASJONER = { hjem: "Fredrikstad", bytte: "Oslo S", jobb: "Lysaker" };
 const MIN_BYTTE_MIN = 0;          // minste byttetid på Oslo S
-// Bare tog fra disse selskapene vises (billett gjelder kun Vy). Sjekkes mot authority id/navn.
-const OPERATOR = /^VYG$|(^|:)VYG(:|$)|^vy\b/i;
+// Billett gjelder kun Vy: tog fra disse selskapene skjules (codespace i ID-er, eller navn).
+const IKKE_VY = /^(FLT|GOA|SJN|SJ|SJA)$|flytoget|go-ahead|^sj\b/i;
 const VIS = 5, VIS_UTVIDET = 15;  // rader per tabell
 const REFRESH_MS = 30000;
 const CLIENT = "fredrikborud-avgangstavle";
@@ -106,16 +107,17 @@ const store = {
 
 // ---------- stasjons-ID-er (slås opp én gang og caches) ----------
 async function stopId(navn) {
-  const cache = store.get("ids", {});
+  const cache = store.get("ids2", {});
   if (cache[navn]) return cache[navn];
   const u = new URL(GEO);
   u.search = new URLSearchParams({ text: navn, layers: "venue", size: "10", categories: "railStation" });
   const r = await fetch(u, { headers: H });
   if (!r.ok) throw new Error("Geocoder " + r.status);
   const f = (await r.json()).features;
-  const hit = f.find(x => x.properties.name.toLowerCase() === navn.toLowerCase()) || f[0];
+  const ln = x => x.properties.name.toLowerCase(), n = navn.toLowerCase();
+  const hit = f.find(x => ln(x) === n) || f.find(x => ln(x) === n + " stasjon") || f.find(x => ln(x).startsWith(n)) || f[0];
   if (!hit) throw new Error("Fant ikke " + navn);
-  cache[navn] = hit.properties.id; store.set("ids", cache);
+  cache[navn] = hit.properties.id; store.set("ids2", cache);
   return hit.properties.id;
 }
 
@@ -155,7 +157,9 @@ async function hent(ids) {
 // Codespace i ServiceJourney-ID-en (VYG:, FLT:, GOA:, SJN:) er det sikreste; authority er reserve.
 const gyldig = c => {
   const sj = c.serviceJourney, a = sj.line.authority || {};
-  return OPERATOR.test((sj.id || "").split(":")[0]) || OPERATOR.test(a.id || "") || OPERATOR.test(a.name || "");
+  const code = (c.serviceJourney.line.publicCode || "").toUpperCase();
+  if (code.startsWith("FLY")) return false;
+  return ![(sj.id || "").split(":")[0], (a.id || "").split(":")[0], a.name || ""].some(x => IKKE_VY.test(x));
 };
 const sjIds = c => c.serviceJourney.quays.map(q => q.stopPlace?.id);
 // Stopper toget ved "til" etter "fra"?
@@ -226,7 +230,7 @@ function seksjon(key, tittel, undertittel, calls, ekstraFn) {
   return `<section class="sec"><h2>${esc(tittel)} <small>${esc(undertittel)}</small></h2><div class="rows">${body}</div>${knapp}</section>`;
 }
 
-let ids, sist, timer;
+let ids, sist, timer, diagnose = "";
 
 function tegn() {
   const d = sist, { hjem, bytte, jobb } = STASJONER;
@@ -246,9 +250,18 @@ function tegn() {
     seksjon("s3", `${jobb} → ${bytte}`, `bytte mot ${hjem}`, s3, c => bytteHTML(finnBytte(c, ids, "hjem", d), hjem)),
     seksjon("s4", `${bytte} → ${hjem}`, "", s4),
   ];
+  diagnose = [
+    `ID: ${JSON.stringify(ids)}`,
+    `Rå: hjem ${d.hjem?.estimatedCalls.length ?? "null"}, jobb ${d.jobb?.estimatedCalls.length ?? "null"}, OsloS avg ${d.bDep?.estimatedCalls.length ?? "null"}, ank ${d.bArr?.estimatedCalls.length ?? "null"}`,
+    `Vy-filter beholder: hjem ${d.hjem?.estimatedCalls.filter(gyldig).length}, OsloS ${d.bDep?.estimatedCalls.filter(gyldig).length}`,
+    `Etter retning: s1 ${s1.length}, s2 ${s2.length}, s3 ${s3.length}, s4 ${s4.length}`,
+    `Eksempel: ${(d.hjem?.estimatedCalls || []).slice(0, 3).map(c => `${c.serviceJourney.id} | ${c.serviceJourney.line.authority?.id}/${c.serviceJourney.line.authority?.name} | stopp ${c.serviceJourney.quays.length}`).join(" ;; ")}`
+  ].join("\n");
+  $("diag").textContent = diagnose;
   // Etter kl. 12 vises hjemreisen øverst
   const ettermiddag = new Date().getHours() >= 12;
   $("grid").innerHTML = (ettermiddag ? [...fra, ...til] : [...til, ...fra]).join("");
+  if (!s1.length && !s2.length && !s3.length && !s4.length) $("diag").style.display = "block";
 }
 
 async function refresh() {
@@ -263,6 +276,7 @@ async function refresh() {
     $("status").textContent = "Oppdatert " + new Date().toLocaleTimeString("no-NO");
   } catch (e) {
     $("status").textContent = "Feil: " + e.message;
+    $("diag").textContent = "Feil: " + e.message + "\n" + (e.stack || ""); $("diag").style.display = "block";
     if (!sist) $("grid").innerHTML = `<div class="err">Klarte ikke hente data: ${esc(e.message)}</div>`;
   }
   timer = setTimeout(refresh, REFRESH_MS);
@@ -273,6 +287,8 @@ $("grid").addEventListener("click", e => {
   utvidet[b.dataset.key] = !utvidet[b.dataset.key]; store.set("utvidet", utvidet); tegn();
 });
 $("refresh").onclick = refresh;
+$("diagBtn").onclick = e => { e.preventDefault(); const el = $("diag"); el.style.display = el.style.display === "none" ? "block" : "none"; };
+if (location.hash === "#diagnose") $("diag").style.display = "block";
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 refresh();
 </script>
