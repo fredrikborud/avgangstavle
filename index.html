@@ -125,12 +125,12 @@ async function stopId(navn) {
 const CALL = `
   aimedDepartureTime expectedDepartureTime aimedArrivalTime expectedArrivalTime
   cancellation
-  quay { publicCode }
+  quay { publicCode stopPlace { id name parent { id } } }
   destinationDisplay { frontText }
   serviceJourney {
     id
     line { publicCode authority { id name } }
-    quays { stopPlace { id } }
+    quays { stopPlace { id name parent { id } } }
   }
   situations { summary { value language } }`;
 
@@ -161,9 +161,18 @@ const gyldig = c => {
   if (code.startsWith("FLY")) return false;
   return ![(sj.id || "").split(":")[0], (a.id || "").split(":")[0], a.name || ""].some(x => IKKE_VY.test(x));
 };
-const sjIds = c => c.serviceJourney.quays.map(q => q.stopPlace?.id);
+// En stasjon kan ha flere NSR-ID-er (barn/forelder), så vi matcher på ID, forelder-ID og navn.
+const norm = n => (n || "").toLowerCase().replace(/\s+stasjon$/, "").trim();
+const nokler = sp => sp ? [sp.id, sp.parent?.id, "navn:" + norm(sp.name)].filter(Boolean) : [];
+let stasjonsNokler = {}; // id -> Set av nøkler (fylles når navn er kjent)
+const treffer = (sp, id) => { const k = nokler(sp); return k.includes(id) || (stasjonsNokler[id] && k.some(x => stasjonsNokler[id].has(x))); };
 // Stopper toget ved "til" etter "fra"?
-const gaarTil = (c, fra, til) => { const a = sjIds(c), i = a.indexOf(fra), j = a.indexOf(til); return i >= 0 && j > i; };
+const gaarTil = (c, fra, til) => {
+  const q = c.serviceJourney.quays.map(x => x.stopPlace);
+  const i = q.findIndex(sp => treffer(sp, fra));
+  if (i < 0) return false;
+  return q.slice(i + 1).some(sp => treffer(sp, til));
+};
 const dep = c => c.expectedDepartureTime || c.aimedDepartureTime;
 const arr = c => c.expectedArrivalTime || c.aimedArrivalTime;
 
@@ -255,7 +264,7 @@ function tegn() {
     `Rå: hjem ${d.hjem?.estimatedCalls.length ?? "null"}, jobb ${d.jobb?.estimatedCalls.length ?? "null"}, OsloS avg ${d.bDep?.estimatedCalls.length ?? "null"}, ank ${d.bArr?.estimatedCalls.length ?? "null"}`,
     `Vy-filter beholder: hjem ${d.hjem?.estimatedCalls.filter(gyldig).length}, OsloS ${d.bDep?.estimatedCalls.filter(gyldig).length}`,
     `Etter retning: s1 ${s1.length}, s2 ${s2.length}, s3 ${s3.length}, s4 ${s4.length}`,
-    `Eksempel: ${(d.hjem?.estimatedCalls || []).slice(0, 3).map(c => `${c.serviceJourney.id} | ${c.serviceJourney.line.authority?.id}/${c.serviceJourney.line.authority?.name} | stopp ${c.serviceJourney.quays.length}`).join(" ;; ")}`
+    `Eksempel: ${(d.hjem?.estimatedCalls || []).slice(0, 3).map(c => `${c.serviceJourney.id} | ${c.serviceJourney.line.authority?.id}/${c.serviceJourney.line.authority?.name} | stopp ${c.serviceJourney.quays.map(q => q.stopPlace?.id + "/" + q.stopPlace?.name).join(",")}`).join(" ;; ")}`
   ].join("\n");
   $("diag").textContent = diagnose;
   // Etter kl. 12 vises hjemreisen øverst
@@ -270,8 +279,11 @@ async function refresh() {
     if (!ids) {
       const [h, b, j] = await Promise.all([stopId(STASJONER.hjem), stopId(STASJONER.bytte), stopId(STASJONER.jobb)]);
       ids = { hjem: h, bytte: b, jobb: j };
+      for (const k of Object.keys(ids)) stasjonsNokler[ids[k]] = new Set([ids[k], "navn:" + norm(STASJONER[k])]);
     }
     sist = await hent(ids);
+    for (const [k, felt] of [["hjem", "hjem"], ["jobb", "jobb"], ["bytte", "bDep"]])
+      for (const c of sist[felt]?.estimatedCalls || []) nokler(c.quay?.stopPlace).forEach(x => stasjonsNokler[ids[k]].add(x));
     tegn();
     $("status").textContent = "Oppdatert " + new Date().toLocaleTimeString("no-NO");
   } catch (e) {
